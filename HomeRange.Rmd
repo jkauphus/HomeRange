@@ -1,0 +1,262 @@
+---
+title: "Home Range Crash Course"
+author: "Jack Kauphusman"
+date: "11/13/2019"
+output:
+  html_notebook:
+    df_print: paged
+    highlight: breezedark
+    number_sections: yes
+    rows.print: 10
+    theme: cosmo
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+  html_document:
+    df_print: paged
+    toc: yes
+  pdf_document: default
+editor_options:
+  chunk_output_type: inline
+---
+<style type="text/css">
+
+h1.title {
+  font-size: 40px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  text-align: center;
+}
+h4.author { /* Header 4 - and the author and data headers use this too  */
+  font-size: 20px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  text-align: center;
+}
+</style>
+---
+
+```{r Packages, message=FALSE, warning=FALSE, include=FALSE}
+packages<-c("adehabitatHR","data.table","ggfortify","grid","move","moveVis","OpenStreetMap","pbapply","plotly","rgdal","sp","tidyverse","viridis")
+sapply(packages, require, character.only=T)
+library(rJava)
+library(OpenStreetMap)
+library (raster)
+```
+# Quick Info
+
+Coyotes (*Canis lantrans*) data on three individuals near Albany, NY, during the spring and summer of 2001, were used as examples for performing home range analyses.
+
+Data comes from:
+
+Bogan, D.A. 2004 Eastern coyote (Canis latrans) home range, habitat selection, and survival rates in the suburban Albany Pine Bush landscape of New York. MA Thesis. State University of New York at Albany.
+
+
+![](data/image.jpg) 
+
+
+# Dataset 
+```{r}
+coyote<-read.csv("data/coyote.csv")
+head(coyote)
+```
+
+Convert Lat & Long to UTM Because I'm stubborn
+
+```{r}
+zone18<-data.frame(coyote$location.long, coyote$location.lat)
+names(zone18)<-c("X", "Y")
+zone18<-as.matrix(zone18)
+UTM<-project(zone18, "+proj=utm +zone=18 ellps=WGS84")
+UTM<-data.frame(UTM)
+names(UTM)<-c("utm.easting", "utm.northing")
+coyote<-cbind(coyote, UTM)
+```
+
+
+Lets see if the dataset has any outliers, and get a rough view of the locations in a map.
+
+```{r}
+map1 <- ggplot() + geom_point(data=coyote, 
+                                   aes(utm.easting, utm.northing,
+                                       color=individual.local.identifier)) +
+                        labs(x="Easting", y= "Northing") +
+                        guides(color=guide_legend("Identifier"))
+
+ggplotly(map1)
+
+```
+Here, I will do a quick map on the three coyote individuals with a basemap from Open Street Map. 
+
+```{r imagery, message=FALSE, warning=FALSE, echo=TRUE, fig.height=6, fig.width=8}
+utm_points <- cbind(coyote$utm.easting, coyote$utm.northing)
+utm_locations <- SpatialPoints(utm_points, 
+                 proj4string=CRS("+proj=utm +zone=18 +datum=WGS84"))
+proj_lat.lon <- as.data.frame(spTransform(
+                utm_locations, CRS("+proj=longlat +datum=WGS84")))
+colnames(proj_lat.lon) <- c("x","y")
+raster <- openmap(c(max(proj_lat.lon$y)+0.01, min(proj_lat.lon$x)-0.01), 
+                  c(min(proj_lat.lon$y)-0.01, max(proj_lat.lon$x)+0.01), 
+                  type = "bing")
+raster_utm <- openproj(raster, 
+              projection = "+proj=utm +zone=18 +ellps=WGS84 +units=m +no_defs")
+
+
+autoplot(raster_utm, expand = TRUE) + theme_bw() +
+  theme(legend.position="bottom") +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  geom_point(data=coyote, aes(utm.easting,utm.northing,
+             color=individual.local.identifier), size = 3, alpha = 0.8) +
+  theme(axis.title = element_text(face="bold")) + labs(x="Easting",
+        y="Northing") + guides(color=guide_legend("Identifier"))
+```
+Both Beta and Omega had overlaping locations.
+
+
+```{r lapply function, message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+lapply(split(coyote, coyote$individual.local.identifier), 
+       function(x)write.csv(x, file = paste(x$individual.local.identifier[1],".csv"), row.names = FALSE))
+```
+
+```{r list, message=FALSE, warning=FALSE, echo=TRUE, results='hide'}
+files <- list.files(path = ".", pattern ="*.csv" , full.names = TRUE)
+```
+
+# Home Range Analysis
+
+Three basic types of home range analyses we will perform in this exercise: Minimum Convex Polygon (MCP), Kernel-Density Estimation (KDE), and Brownian Bridge Movement Model (BB).
+
+MCP - draws the smallest polygon around points with all interior angles less than 180 degrees. MCPs are common estimators of home range, but can potentially include area not used by the animal and overestimate the home range
+
+KDE - calculates the density of features in a neighborhood around those features.
+
+BB - models movement of an individual
+
+## MCP Analysis
+
+```{r MCP plot, message=FALSE, warning=FALSE, echo=TRUE, fig.height=6, fig.width=6}
+mcp_raster <- function(filename){
+  data <- read.csv(file = filename)
+  x <- as.data.frame(data$utm.easting)
+  y <- as.data.frame(data$utm.northing)
+  xy <- c(x,y)
+  data.proj <- SpatialPointsDataFrame(xy,data, proj4string = CRS("+proj=utm +zone=18 +ellps=WGS84 +units=m +no_defs"))
+  xy <- SpatialPoints(data.proj@coords)
+  mcp.out <- mcp(xy, percent=100, unout="ha")
+  mcp.points <- cbind((data.frame(xy)),data$individual.local.identifier)
+  colnames(mcp.points) <- c("x","y", "identifier")
+  mcp.poly <- fortify(mcp.out, region = "id")
+  units <- grid.text(paste(round(mcp.out@data$area,2),"ha"), x=0.85,  y=0.95,
+                     gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+  mcp.plot <- autoplot(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+    theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+    geom_polygon(data=mcp.poly, aes(x=mcp.poly$long, y=mcp.poly$lat), alpha=0.8) +
+    geom_point(data=mcp.points, aes(x=x, y=y)) + 
+    labs(x="Easting (m)", y="Northing (m)", title=mcp.points$identifier) +
+    theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5)) + 
+    annotation_custom(units)
+  mcp.plot
+}
+
+pblapply(files, mcp_raster)
+```
+
+## Kernel-Density Estimation
+
+```{r KDE plot, message=FALSE, warning=FALSE, echo=TRUE, fig.height=6, fig.width=6}
+kde_raster <- function(filename){
+  data <- read.csv(file = filename)
+  x <- as.data.frame(data$utm.easting)
+  y <- as.data.frame(data$utm.northing)
+  xy <- c(x,y)
+  data.proj <- SpatialPointsDataFrame(xy,data, proj4string = CRS("+proj=utm +zone=18 +ellps=WGS84 +units=m +no_defs"))
+  xy <- SpatialPoints(data.proj@coords)
+  kde<-kernelUD(xy, h="href", kern="bivnorm", grid=100)
+  ver <- getverticeshr(kde, 95)
+  kde.points <- cbind((data.frame(data.proj@coords)),data$individual.local.identifier)
+  colnames(kde.points) <- c("x","y","identifier")
+  kde.poly <- fortify(ver, region = "id")
+  units <- grid.text(paste(round(ver$area,2)," ha"), x=0.85,  y=0.95,
+                     gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+  kde.plot <- autoplot(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+    theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+    geom_polygon(data=kde.poly, aes(x=kde.poly$long, y=kde.poly$lat), alpha = 0.8) +
+    geom_point(data=kde.points, aes(x=x, y=y)) +
+    labs(x="Easting (m)", y="Northing (m)", title=kde.points$identifier) +
+    theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5)) + 
+    annotation_custom(units)
+  kde.plot
+}
+
+pblapply(files, kde_raster)
+```
+
+### Brownian Bridge Movement
+
+No Luck for Now;
+
+couldn't get crop to run message was: "Error in x@coords[i, , drop = FALSE] : subscript out of bounds"
+
+However, I learned that in excel you need to set the format of the column to custum and type in "yyyy-mm-dd h:mm:ss" and it will correct the entire column to that format. This may be very much a no brainer.
+
+```{r bb plot, eval=FALSE, fig.height=6, fig.width=6, message=FALSE, warning=FALSE, include=FALSE}
+A <- read.csv("Alpha .csv")
+date <- as.POSIXct(strptime(as.character(A$timestamp),"%Y-%m-%d %H:%M:%S", tz="Asia/Bangkok"))
+A$date <- date
+A.reloc <- cbind.data.frame(A$utm.easting, A$utm.northing,
+                                as.vector(A$individual.local.identifier),
+                                as.POSIXct(date))
+colnames(A.reloc) <- c("x","y","id","date")
+trajectory <- as.ltraj(A.reloc, date=date, id="Alpha")
+sig1 <- liker(trajectory, sig2 = 58, rangesig1 = c(0, 5), plotit = FALSE)
+opha.traj <- kernelbb(trajectory, sig1 = .7908, sig2 = 58, grid = 100)
+bb_ver <- getverticeshr(opha.traj, 95)
+bb_poly <- fortify(bb_ver, region = "id", 
+                   proj4string = CRS("+proj=utm +zone=18+
+                                     ellps=WGS84 +units=m +no_defs"))
+colnames(bb_poly) <- c("x","y","order","hole","piece","id","group")
+bb_image <- crop(opha.traj, bb_ver, 
+                 proj4string = CRS("+proj=utm +zone=47 +
+                                   ellps=WGS84 +units=m +no_defs"))
+bb_units <- grid.text(paste(round(bb_ver$area,2)," ha"), x=0.85,  y=0.95,
+                   gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+bb.plot <- autoplot(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  geom_tile(data=bb_image, 
+            aes(x=bb_image@coords[,1], y=bb_image@coords[,2],
+            fill = bb_image@data$ud)) +
+  geom_polygon(data=bb_poly, aes(x=x, y=y, group = group), color = "black", fill = NA) +
+  scale_fill_viridis_c(option = "inferno") + annotation_custom(bb_units) +
+  labs(x="Easting (m)", y="Northing (m)", title="OPHA1") +
+  theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5))
+bb.plot
+```
+## Animate Trajectory Data
+
+Here is my attempt at creating an animation of the individual "Alpha"'s movement from April to July in 2001 in Albany, NY, USA. Data was collected by radio telemetry.
+
+```{r move, echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+A.move <- move(x=A$location.long, 
+             y=A$location.lat, 
+             time=as.POSIXct(A$timestamp, 
+                             format="%Y-%m-%d %H:%M:%S", tz="Asia/Bangkok"), 
+             proj=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"),
+             data=A, animal=A$individual.local.identifier, 
+             sensor=A$sensor.type)
+
+movement <- align_move(A.move, res = "max", digit = 0, unit = "secs")
+
+frames <- frames_spatial(movement, path_colours = "orange",
+                         map_service = "osm",
+                         alpha = 0.5) %>% 
+  add_labels(x = "Longitude", y = "Latitude") %>%
+  add_northarrow() %>% 
+  add_scalebar() %>% 
+  add_timestamps(movement, type = "label") %>% 
+  add_progress()
+
+animate_frames(frames, fps = 5, overwrite = TRUE,
+               out_file = "./moveVis-5fps.gif")
+```
+![](./moveVis-5fps.gif "Relocation Animation for Alpha")
