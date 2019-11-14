@@ -1,37 +1,15 @@
-## Welcome to GitHub Pages
+## Coyote (Canis lantrans) Home Range Analysis Example
 
-You can use the [editor on GitHub](https://github.com/jkauphus/HomeRange/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
+Location: Albany, NY, USA
+Time: Spring - Summer 2001
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+### Data comes from:
 
-### Markdown
+Bogan, D.A. 2004 Eastern coyote (Canis latrans) home range, habitat selection, and survival rates in the suburban Albany Pine Bush landscape of New York. MA Thesis. State University of New York at Albany.
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+### Analysis
+1. MCP
+2. KDE
+3. BB (still in progress)
 
-```markdown
-Syntax highlighted code block
-
-# Header 1
-## Header 2
-### Header 3
-
-- Bulleted
-- List
-
-1. Numbered
-2. List
-
-**Bold** and _Italic_ and `Code` text
-
-[Link](url) and ![Image](src)
-```
-
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
-
-### Jekyll Themes
-
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/jkauphus/HomeRange/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
-
-### Support or Contact
-
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+link: https://jkauphus.github.io/HomeRange/
