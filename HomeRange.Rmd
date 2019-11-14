@@ -135,7 +135,7 @@ BB - models movement of an individual
 
 ## MCP Analysis
 
-```{r MCP plot, message=FALSE, warning=FALSE, echo=TRUE, fig.height=6, fig.width=6}
+```{r MCP plot, echo=TRUE, fig.height=6, fig.width=6, message=FALSE, warning=FALSE}
 mcp_raster <- function(filename){
   data <- read.csv(file = filename)
   x <- as.data.frame(data$utm.easting)
