@@ -170,37 +170,37 @@ kde_raster <- function(filename){
   x <- as.data.frame(data$utm.easting)
   y <- as.data.frame(data$utm.northing)
   xy <- c(x,y)
-  data.proj <- SpatialPointsDataFrame(xy,data, proj4string = CRS("+proj=utm +zone=18 +ellps=WGS84 +units=m +no_defs"))
+  data.proj <- SpatialPointsDataFrame(xy,data, proj4string = CRS("+proj=utm +zone=15 +south +ellps=WGS84 +units=m +no_defs"))
   xy <- SpatialPoints(data.proj@coords)
   kde<-kernelUD(xy, h="href", kern="bivnorm", grid=100)
-  ver <- getverticeshr(kde, 95)
+  ver95 <- getverticeshr(kde, 95)
+  ver75 <- getverticeshr(kde, 75)
+  ver50 <- getverticeshr(kde, 50)
   kde.points <- cbind((data.frame(data.proj@coords)),data$individual.local.identifier)
   colnames(kde.points) <- c("x","y","identifier")
-  kde.poly <- fortify(ver, region = "id")
-  units <- grid.text(paste(round(ver$area,2)," ha"), x=0.85,  y=0.95,
+  kde.poly95 <- fortify(ver95, region = "id")
+  kde.poly75 <- fortify(ver75, region = "id")
+  kde.poly50 <- fortify(ver50, region = "id")
+  units <- grid.text(paste(round(ver95$area,2)," ha"), x=0.85,  y=0.95,
                      gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
   kde.plot <- autoplot(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
     theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
-    geom_polygon(data=kde.poly, aes(x=kde.poly$long, y=kde.poly$lat), alpha = 0.8) +
+    geom_polygon(data=kde.poly95, aes(x=kde.poly95$long, y=kde.poly95$lat), alpha = 0.4, fill="red") +
+    geom_polygon(data=kde.poly75, aes(x=kde.poly75$long, y=kde.poly75$lat), alpha = 0.4, fill="purple") +
+    geom_polygon(data=kde.poly50, aes(x=kde.poly50$long, y=kde.poly50$lat), alpha = 0.4, fill="darkblue") +
     geom_point(data=kde.points, aes(x=x, y=y)) +
     labs(x="Easting (m)", y="Northing (m)", title=kde.points$identifier) +
     theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5)) + 
     annotation_custom(units)
   kde.plot
 }
-
 pblapply(files, kde_raster)
 ```
 
-### Brownian Bridge Movement
+### Brownian Bridge Movement 
 
-No Luck for Now;
 
-couldn't get crop to run message was: "Error in x@coords[i, , drop = FALSE] : subscript out of bounds"
-
-However, I learned that in excel you need to set the format of the column to custum and type in "yyyy-mm-dd h:mm:ss" and it will correct the entire column to that format. This may be very much a no brainer.
-
-```{r bb plot, eval=FALSE, fig.height=6, fig.width=6, message=FALSE, warning=FALSE, include=FALSE}
+```{r bb plot, echo=TRUE, fig.height=6, fig.width=6, message=FALSE, warning=FALSE}
 A <- read.csv("Alpha .csv")
 date <- as.POSIXct(strptime(as.character(A$timestamp),"%Y-%m-%d %H:%M:%S", tz="Asia/Bangkok"))
 A$date <- date
@@ -209,26 +209,31 @@ A.reloc <- cbind.data.frame(A$utm.easting, A$utm.northing,
                                 as.POSIXct(date))
 colnames(A.reloc) <- c("x","y","id","date")
 trajectory <- as.ltraj(A.reloc, date=date, id="Alpha")
+
+
 sig1 <- liker(trajectory, sig2 = 58, rangesig1 = c(0, 5), plotit = FALSE)
-opha.traj <- kernelbb(trajectory, sig1 = .7908, sig2 = 58, grid = 100)
+opha.traj <- kernelbb(trajectory, sig1 = .1351, sig2 = 58, grid = 95)
 bb_ver <- getverticeshr(opha.traj, 95)
 bb_poly <- fortify(bb_ver, region = "id", 
-                   proj4string = CRS("+proj=utm +zone=18+
-                                     ellps=WGS84 +units=m +no_defs"))
+                   proj4string = CRS("+proj=utm +zone=15 +south
+                                     +ellps=WGS84 +units=m +no_defs"))
 colnames(bb_poly) <- c("x","y","order","hole","piece","id","group")
-bb_image <- crop(opha.traj, bb_ver, 
-                 proj4string = CRS("+proj=utm +zone=47 +
-                                   ellps=WGS84 +units=m +no_defs"))
+
+# bb_image <- crop(opha.traj, bb_ver, 
+#                  proj4string = CRS("+proj=utm +zone=15 +south 
+#                                    +ellps=WGS84 +units=m +no_defs")) Crop Does not want to work
+
 bb_units <- grid.text(paste(round(bb_ver$area,2)," ha"), x=0.85,  y=0.95,
-                   gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+                      gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
 bb.plot <- autoplot(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+  coord_fixed(xlim = c(min(A$utm.easting), max(A$utm.easting)), ylim = c(min(A$utm.northing), max(A$utm.northing)))+
   theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
-  geom_tile(data=bb_image, 
-            aes(x=bb_image@coords[,1], y=bb_image@coords[,2],
-            fill = bb_image@data$ud)) +
-  geom_polygon(data=bb_poly, aes(x=x, y=y, group = group), color = "black", fill = NA) +
+  geom_tile(data=opha.traj, 
+            aes(x=opha.traj@coords[,1], y=opha.traj@coords[,2],
+                fill = opha.traj@data$ud)) +
+  geom_polygon(data=bb_poly, aes(x=x, y=y, group = group), color = "white", fill = NA) +
   scale_fill_viridis_c(option = "inferno") + annotation_custom(bb_units) +
-  labs(x="Easting (m)", y="Northing (m)", title="OPHA1") +
+  labs(x="Easting (m)", y="Northing (m)", title="Alpha") +
   theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5))
 bb.plot
 ```
@@ -245,18 +250,20 @@ A.move <- move(x=A$location.long,
              data=A, animal=A$individual.local.identifier, 
              sensor=A$sensor.type)
 
-movement <- align_move(A.move, res = "max", digit = 0, unit = "secs")
+movement1 <- align_move(A.move, res = "max", digit = 0, unit = "secs")
 
-frames <- frames_spatial(movement, path_colours = "orange",
+
+frames <- frames_spatial(movement1, path_colours = "red",tail_length = 29,
                          map_service = "osm",
                          alpha = 0.5) %>% 
   add_labels(x = "Longitude", y = "Latitude") %>%
   add_northarrow() %>% 
   add_scalebar() %>% 
-  add_timestamps(movement, type = "label") %>% 
+  add_timestamps(movement1, type = "label") %>% 
   add_progress()
 
 animate_frames(frames, fps = 5, overwrite = TRUE,
                out_file = "./moveVis-5fps.gif")
 ```
 ![](./moveVis-5fps.gif "Relocation Animation for Alpha")
+
